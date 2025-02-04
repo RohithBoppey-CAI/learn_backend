@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from routes import homepage_router, testing_router
+from routes import homepage_router, testing_router, postgres_router
 from dotenv import load_dotenv
 
 from settings import settings
@@ -26,4 +26,6 @@ def get_homepage():
 # I want to link some routers in here, with some prefix
 main_app.include_router(homepage_router)
 main_app.include_router(testing_router)
+main_app.include_router(postgres_router)
+
 

@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 import os
-from services import psql_execute_single, exec_one
+from services.postgres import psql_execute_single, exec_one
 
 from sqlalchemy import text
 
@@ -23,7 +23,7 @@ def get_all_env():
 
 @testing_router.get("/test_postgres_connection")
 async def test_postgres_connection():
-    query = text("select * from sample_table")
+    query = text("select * from menu")
     res = await psql_execute_single(query)
     res = exec_one(res)
     return res

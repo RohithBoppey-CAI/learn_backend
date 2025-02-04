@@ -54,7 +54,6 @@ postgres_engine = create_engine(
 
 
 def create_async_factory(url):
-    print(url)
     postgres_engine_async = create_async_engine(
         url,
         pool_size=settings.POSTGRES_POOL_SIZE,  # Number of connections that can be used by the application
