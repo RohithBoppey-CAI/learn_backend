@@ -10,31 +10,42 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from static import POSTGRES_MAX_CONNECTIONS_ERROR
+# from static import POSTGRES_MAX_CONNECTIONS_ERROR
+
+
+# POSTGRES_MAX_CONNECTIONS_ERROR = 'too many connections error'
+
+# settings = {
+#     POSTGRES_USER: "postgres",
+#     POSTGRES_PASSWORD: "postgres",
+#     POSTGRES_SERVICE: "localhost",
+#     POSTGRES_DB: "danny_diner",
+#     POSTGRES_PORT: "5432"
+#   }
 
 SQLALCHEMY_DATABASE_URL = (
     "postgresql://"
-    + settings.postgres_user
+    + settings.POSTGRES_USER
     + ":"
-    + settings.postgres_password
+    + settings.POSTGRES_PASSWORD
     + "@"
-    + settings.postgres_service
+    + settings.POSTGRES_SERVICE
     + ":"
-    + settings.postgres_port
+    + settings.POSTGRES_PORT
     + "/"
-    + settings.postgres_db
+    + settings.POSTGRES_DB
 )
 SQLALCHEMY_DATABASE_URL_ASYNC = (
     "postgresql+asyncpg://"
-    + settings.postgres_user
+    + settings.POSTGRES_USER
     + ":"
-    + settings.postgres_password
+    + settings.POSTGRES_PASSWORD
     + "@"
-    + settings.postgres_service
+    + settings.POSTGRES_SERVICE
     + ":"
-    + settings.postgres_port
+    + settings.POSTGRES_PORT
     + "/"
-    + settings.postgres_db
+    + settings.POSTGRES_DB
 )
 
 postgres_engine = create_engine(
@@ -43,10 +54,11 @@ postgres_engine = create_engine(
 
 
 def create_async_factory(url):
+    print(url)
     postgres_engine_async = create_async_engine(
         url,
-        pool_size=settings.postgres_pool_size,  # Number of connections that can be used by the application
-        max_overflow=settings.postgres_max_overflow,  # Max nu of additional connections that can be created
+        pool_size=settings.POSTGRES_POOL_SIZE,  # Number of connections that can be used by the application
+        max_overflow=settings.POSTGRES_MAX_OVERFLOW,  # Max nu of additional connections that can be created
     )
 
     async_session_factory = async_sessionmaker(

@@ -1,2 +1,4 @@
 /static_data
 .env
+*.pyc
+/__pycache__
