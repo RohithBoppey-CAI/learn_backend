@@ -4,7 +4,7 @@ from ..schema import Menu, Members, Sales
 from .connector import psql_execute_single
 from .postgres_utils import exec_all
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, case, between, text, cast
 
 # the main file which will use the psql & sql alchmey to write the code and finally execute it using the psql function
 # the next idea is that this query would then go into redis
@@ -114,9 +114,37 @@ select m.customer_id, m.product_name
 from MostFrequent m
 where m.rnk = 1 
 
+
+When rank is used: this could change
+
+| customer_id | product_name |
+| ----------- | ------------ |
+| A           | curry        |
+| B           | curry        |
+| C           | ramen        |
+
+When row number is used: this means that on the same date, they ordered this: 
+
+| customer_id | product_name |
+| ----------- | ------------ |
+| A           | curry        |
+| A           | sushi        |
+| B           | curry        |
+| C           | ramen        |
+| C           | ramen        |
+
 """
-def Q3():
-    pass
+async def Q3():
+    
+    # select the name of the product that the customer has brought
+    all_order_dates = select(Sales.customer_id, Menu.product_name, Sales.order_date.label('order_date'), 
+                            #  rank column
+                             func.rank().over(partition_by=Sales.customer_id, order_by=Sales.order_date).label('rnk')
+                             ).join(Sales, Sales.product_id == Menu.product_id).cte('all_orders_ranked')
+    
+    final_query = select(all_order_dates.c.customer_id, all_order_dates.c.product_name).where(all_order_dates.c.rnk == 1)
+    res = await exec(final_query, cols = ['customer_id', 'first_product'])
+    return res
     
     
     
@@ -134,9 +162,27 @@ on o.product_id = m.product_id
 order by count desc
 limit 1
 
+| product_name | count |
+| ------------ | ----- |
+| ramen        | 8     |
+| curry        | 4     |
+| sushi        | 3     |
+
+
+
 """
-def Q4():
-    pass
+async def Q4():
+    
+    # first group the sales based on product id and count, then join the product table to get the name
+    sales_query = select(Sales.product_id, func.count(Sales.product_id).label('qty_sold')).group_by(Sales.product_id).cte('sales_combined_query')
+    
+    # for the top selling one, now we have count of each product
+    final_query = select(Menu.product_name, sales_query.c.qty_sold).join(Menu, Menu.product_id == sales_query.c.product_id).order_by(sales_query.c.qty_sold.desc())
+    res = await exec(final_query, cols = ['product_name', 'qty_sold'])
+    
+    # put limit if needed
+    return res
+    
     
     
     
@@ -165,9 +211,30 @@ Ranked as (
   select * from Ranked 
   where Ranked.rnk = 1
 
+| customer_id | product_name | num_count | rnk |
+| ----------- | ------------ | --------- | --- |
+| A           | ramen        | 3         | 1   |
+| B           | curry        | 2         | 1   |
+| B           | sushi        | 2         | 1   |
+| B           | ramen        | 2         | 1   |
+| C           | ramen        | 3         | 1   |
+
 """
-def Q5():
-    pass
+async def Q5():
+    
+    product_counts_per_customer = select(Sales.customer_id, Menu.product_id, func.count(Menu.product_id).label('qty_sold')
+                                         ).join(Menu, Sales.product_id == Menu.product_id
+                                               ).group_by(Sales.customer_id, Menu.product_id
+                                               ).cte('per_cust')
+
+    final_query = select(product_counts_per_customer.c.customer_id, Menu.product_name, product_counts_per_customer.c.qty_sold,
+                         func.rank().over(partition_by=product_counts_per_customer.c.customer_id, order_by=product_counts_per_customer.c.qty_sold.desc()).label('rnk')
+                         ).join(Menu, Menu.product_id == product_counts_per_customer.c.product_id).cte('ranked')
+    
+    final = select(final_query.c.customer_id, final_query.c.product_name, final_query.c.qty_sold, final_query.c.rnk).where(final_query.c.rnk == 1)
+    
+    res = await exec(final, cols = ['customer_id', 'product_name', 'qty_sold', 'rank'])
+    return res
     
     
     
@@ -179,7 +246,7 @@ with ordersAfterJoining as (
   select s.customer_id, s.order_date, s.product_id
   from sales s join members m
   on s.customer_id = m.customer_id
-  where s.order_date > m.join_date
+  where s.order_date >= m.join_date
 ),
 
 rankedOrder as (
@@ -195,21 +262,36 @@ on r.product_id = m.product_id
 where row_number = 1
 order by customer_id
 
+| customer_id | order_date | product_id | product_name |
+| ----------- | ---------- | ---------- | ------------ |
+| A           | 2021-01-07 | 2          | curry        |
+| B           | 2021-01-11 | 1          | sushi        |
 
 """
-def Q6():
-    pass
+async def Q6():
     
+    # first find the orders users have placed after they joined
+    orders_after_joining = select(Members.customer_id, Sales.order_date, Sales.product_id
+                                  ).join(Sales, Sales.customer_id == Members.customer_id
+                                         ).where(Members.join_date <= Sales.order_date).cte('orders_after_joining')
     
+    final_order = select(orders_after_joining.c.customer_id, orders_after_joining.c.product_id, 
+                         func.rank().over(partition_by=orders_after_joining.c.customer_id, order_by=orders_after_joining.c.order_date).label('rnk')
+                         ).cte('ranked')
     
+    final = select(final_order.c.customer_id, Menu.product_name
+                   ).join(Menu, Menu.product_id == final_order.c.product_id
+                          ).where(final_order.c.rnk == 1)
+    
+    res = await exec(final, ['customer_id', 'product_name'])
+    return res
+
     
     
 """
-Find the total spend of each customer: When we join sales, menu, we get customer info as well, so we can do just join and sum by group by.
+Which item was purchased just before the customer became a member?
 
--- Which item was purchased just before the customer became a member?
-
-with ordersAfterJoining as (
+with ordersBeforeJoining as (
   select s.customer_id, s.order_date, s.product_id
   from sales s right join members m
   on s.customer_id = m.customer_id
@@ -219,7 +301,7 @@ with ordersAfterJoining as (
 rankedOrder as (
   select *,
   row_number() over(partition by o.customer_id order by order_date DESC) rn
-  from ordersAfterJoining o
+  from ordersBeforeJoining o
 )
 
 select r.customer_id, r.order_date, m.product_name  
@@ -227,9 +309,30 @@ from rankedOrder r join menu m
 on r.product_id = m.product_id
 where r.rn = 1
 
+
+| customer_id | order_date | product_name |
+| ----------- | ---------- | ------------ |
+| B           | 2021-01-04 | sushi        |
+| A           | 2021-01-01 | sushi        |
+
 """
-def Q7():
-    pass
+async def Q7():
+    
+    orders_before_joining = select(Members.customer_id, Sales.order_date, Sales.product_id
+                                  ).join(Sales, Sales.customer_id == Members.customer_id
+                                         ).where(Members.join_date > Sales.order_date).cte('orders_before_joining')
+                    
+    # use descending rank for -> because we want the max order before the join date   
+    ranked = select(orders_before_joining.c.customer_id, orders_before_joining.c.product_id, 
+                    func.row_number().over(partition_by=orders_before_joining.c.customer_id, order_by=orders_before_joining.c.order_date.desc()).label('rnk')
+                    ).cte('ranked')
+                                  
+    final = select(ranked.c.customer_id, Menu.product_name
+                   ).join(Menu, Menu.product_id == ranked.c.product_id
+                          ).where(ranked.c.rnk == 1)
+    
+    res = await exec(final, cols = ['customer_id', 'product_name'])
+    return res
     
     
     
@@ -292,9 +395,25 @@ WHERE
 GROUP BY 
     s.customer_id;
 
+
+| customer_id | total_qty | total_spent |
+| ----------- | --------- | ----------- |
+| B           | 3         | 40          |
+| A           | 2         | 25          |
+
+
 """
-def Q8():
-    pass
+async def Q8():
+    
+    # doing an all join
+    final = select(
+        Members.customer_id, func.count(Sales.product_id).label('total_qty'), func.sum(Menu.price).label("total_spent")
+    ).join(Sales, Sales.product_id == Menu.product_id
+           ).join(Members, Sales.customer_id == Members.customer_id
+                  ).where(Members.join_date > Sales.order_date).group_by(Members.customer_id)
+
+    res = await exec(final, cols = ['customer_id', 'total_qty', 'total_spent'])    
+    return res
     
     
     
@@ -318,9 +437,31 @@ from sales s join menuPoints m
 on s.product_id = m.product_id
 group by s.customer_id
 
+| customer_id | total_price | total_points |
+| ----------- | ----------- | ------------ |
+| B           | 74          | 940          |
+| C           | 36          | 360          |
+| A           | 76          | 860          |
+
 """
-def Q9():
-    pass
+async def Q9():
+    
+    # make a new points table for the calculation
+    added_menu_points = select(
+        Sales.customer_id, case(
+        (Menu.product_name == 'sushi', 20 * Menu.price),
+            else_= 10 * Menu.price
+        ).label('points'), Menu.price
+    ).join(Menu, Menu.product_id == Sales.product_id).cte('menu_points')
+    
+    
+    # now new mnu is calculated, aggregrate the price now for each customer
+    new_points_per_customer = select(
+        added_menu_points.c.customer_id, func.sum(added_menu_points.c.points).label('current_points'), func.sum(added_menu_points.c.price).label('old_price')
+    ).group_by(added_menu_points.c.customer_id)
+    
+    res = await exec(new_points_per_customer, cols = ['customer_id', 'new_points', 'old_price'])    
+    return res
     
     
     
@@ -341,7 +482,7 @@ with PointsTable as (
         (
             CASE 
                 WHEN s.order_date BETWEEN mem.join_date AND (mem.join_date + INTERVAL '7 days') THEN m.price * 20
-                when m.product_name = 'sushi' then m.price * 20
+                -- when m.product_name = 'sushi' then m.price * 20
                 ELSE m.price * 10
             END
         ) AS points
@@ -358,9 +499,37 @@ select p.customer_id, sum(p.points) as total_points
 from PointsTable p
 group by p.customer_id;
 
+| customer_id | total_points |
+| ----------- | ------------ |
+| A           | 1270         |
+| B           | 840          |
+
 """
-def Q10():
-    pass
+async def Q10():
+    # first make the points table, the above logic can be still used now as well
+    added_menu_points = select(
+        Sales.customer_id, 
+        case(
+            (and_(
+                Sales.order_date.between(
+                    Members.join_date, 
+                    Members.join_date + text("INTERVAL '7 days'")
+                )
+            ), 20 * Menu.price)
+        ,else_=10 * Menu.price).label('points')
+        , Menu.price, Members.join_date
+    ).join(Menu, Menu.product_id == Sales.product_id
+           ).join(Members, Members.customer_id == Sales.customer_id)
+
+    
+    new_points_per_customer = select(
+        added_menu_points.c.customer_id, func.sum(added_menu_points.c.points).label('total_points'), func.sum(added_menu_points.c.price).label('old_price')
+        ).group_by(added_menu_points.c.customer_id
+               ).where(added_menu_points.c.join_date < text("'2021-02-01'"))
+    
+    res = await exec(new_points_per_customer, cols = ['customer_id', 'new_points', 'old_price'])    
+    return res
+    
     
     
 
